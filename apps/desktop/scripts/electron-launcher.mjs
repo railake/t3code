@@ -100,7 +100,13 @@ export function resolveMacCodeSignArguments(appBundlePath) {
   return ["--force", "--deep", "--sign", "-", "--timestamp=none", appBundlePath];
 }
 
+/** Strip Finder/provenance xattrs so ad-hoc codesign accepts a freshly copied bundle. */
+export function clearMacBundleExtendedAttributes(appBundlePath) {
+  runChecked("xattr", ["-cr", appBundlePath]);
+}
+
 function signMacLauncherBundle(appBundlePath) {
+  clearMacBundleExtendedAttributes(appBundlePath);
   runChecked("codesign", resolveMacCodeSignArguments(appBundlePath));
 }
 
@@ -385,14 +391,11 @@ function buildMacLauncher(electronBinaryPath) {
   }
 
   NodeFS.rmSync(targetAppBundlePath, { recursive: true, force: true });
-  // verbatimSymlinks keeps the framework's relative symlinks intact
-  // (e.g. Resources -> Versions/Current/Resources). Without it cpSync
-  // rewrites them to absolute paths into node_modules, which escape the
-  // bundle and crash sandboxed helper processes (icudtl.dat not found).
-  NodeFS.cpSync(sourceAppBundlePath, targetAppBundlePath, {
-    recursive: true,
-    verbatimSymlinks: true,
-  });
+  // ditto --norsrc copies the Electron.app without FinderInfo/resource-fork
+  // xattrs. NodeFS.cpSync preserves those, and ad-hoc codesign then fails with
+  // "resource fork, Finder information, or similar detritus not allowed".
+  // verbatimSymlinks equivalent: ditto keeps framework relative symlinks intact.
+  runChecked("ditto", ["--norsrc", sourceAppBundlePath, targetAppBundlePath]);
   patchMainBundleInfoPlist(
     targetAppBundlePath,
     iconPath,
