@@ -198,3 +198,100 @@ export class NotebookOpenError extends Schema.TaggedError<NotebookOpenError>()(
     } as any);
   }
 }
+
+export const NotebookCellOutputsEdit = Schema.Literals(["keep", "clear"]);
+export type NotebookCellOutputsEdit = typeof NotebookCellOutputsEdit.Type;
+
+/** Cell-level edit sent by the client; the server merges onto the on-disk JSON. */
+export const NotebookCellEdit = Schema.Struct({
+  sessionId: TrimmedNonEmptyString,
+  persistentId: Schema.NullOr(TrimmedNonEmptyString),
+  cellType: NotebookCellType,
+  source: Schema.String,
+  metadata: Schema.Record(Schema.String, Schema.Unknown),
+  outputs: NotebookCellOutputsEdit,
+});
+export type NotebookCellEdit = typeof NotebookCellEdit.Type;
+
+export const NotebookSaveInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  relativePath: TrimmedNonEmptyString.check(Schema.isMaxLength(NOTEBOOK_PATH_MAX_LENGTH)),
+  baseRevision: TrimmedNonEmptyString,
+  cells: Schema.Array(NotebookCellEdit),
+});
+export type NotebookSaveInput = typeof NotebookSaveInput.Type;
+
+export const NotebookSaveFailure = Schema.Literals([
+  "workspace_path_outside_root",
+  "resolved_path_outside_root",
+  "path_not_file",
+  "binary_file",
+  "operation_failed",
+  "document_too_large",
+  "invalid_notebook",
+  "revision_conflict",
+  "read_only_document",
+  "write_failed",
+]);
+export type NotebookSaveFailure = typeof NotebookSaveFailure.Type;
+
+type NotebookSaveErrorContext = {
+  readonly cwd: string;
+  readonly relativePath: string;
+  readonly failure: NotebookSaveFailure;
+  readonly resolvedPath?: string;
+  readonly resolvedWorkspaceRoot?: string;
+  readonly operation?: NotebookFileOperation;
+  readonly operationPath?: string;
+  readonly byteLength?: number;
+  readonly maxBytes?: number;
+  readonly currentRevision?: string;
+  readonly cause?: unknown;
+};
+
+function notebookSaveErrorMessage(props: NotebookSaveErrorContext): string {
+  switch (props.failure) {
+    case "revision_conflict":
+      return `Notebook '${props.relativePath}' changed on disk.`;
+    case "read_only_document":
+      return `Notebook '${props.relativePath}' cannot be edited.`;
+    case "write_failed":
+      return `Failed to write notebook '${props.relativePath}' in '${props.cwd}'.`;
+    case "document_too_large":
+      return `Notebook '${props.relativePath}' is ${props.byteLength?.toLocaleString() ?? "too large"} bytes; the viewer reads at most ${props.maxBytes?.toLocaleString() ?? "a bounded"} bytes so it never parses a truncated file.`;
+    case "invalid_notebook":
+      return `Notebook '${props.relativePath}' is not valid notebook JSON.`;
+    case "binary_file":
+      return `Notebook '${props.relativePath}' contains binary data and cannot be opened.`;
+    case "path_not_file":
+      return `Workspace path '${props.relativePath}' is not a file.`;
+    default:
+      return `Failed to save notebook '${props.relativePath}' in '${props.cwd}'.`;
+  }
+}
+
+export class NotebookSaveError extends Schema.TaggedError<NotebookSaveError>()(
+  "NotebookSaveError",
+  {
+    cwd: Schema.optional(TrimmedNonEmptyString),
+    relativePath: Schema.optional(TrimmedNonEmptyString),
+    failure: Schema.optional(NotebookSaveFailure),
+    resolvedPath: Schema.optional(TrimmedNonEmptyString),
+    resolvedWorkspaceRoot: Schema.optional(TrimmedNonEmptyString),
+    operation: Schema.optional(NotebookFileOperation),
+    operationPath: Schema.optional(TrimmedNonEmptyString),
+    byteLength: Schema.optional(NonNegativeInt),
+    maxBytes: Schema.optional(NonNegativeInt),
+    currentRevision: Schema.optional(TrimmedNonEmptyString),
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {
+  // @effect-diagnostics-next-line overriddenSchemaConstructor:off
+  constructor(props: NotebookSaveErrorContext) {
+    super({
+      ...props,
+      message: notebookSaveErrorMessage(props),
+    } as any);
+  }
+}

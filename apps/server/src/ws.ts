@@ -67,7 +67,9 @@ import {
   AssetWorkspaceContextNotFoundError,
   AssetWorkspaceContextResolutionError,
   NotebookOpenError,
+  NotebookSaveError,
   type NotebookOpenFailure,
+  type NotebookSaveFailure,
   type NotebookFileOperation,
   RpcClientId,
   EnvironmentAuthorizationError,
@@ -374,6 +376,40 @@ function notebookFileFailureContext(
     ...(operation === undefined ? {} : { operation }),
     ...(mapped.operationPath === undefined ? {} : { operationPath: mapped.operationPath }),
   };
+}
+
+function notebookSaveFailureContext(
+  error:
+    | WorkspaceFileSystem.WorkspaceFileSystemError
+    | WorkspacePaths.WorkspacePathOutsideRootError
+    | NotebookSaveError
+    | NotebookOpenError,
+): {
+  readonly failure: NotebookSaveFailure;
+  readonly resolvedPath?: string;
+  readonly resolvedWorkspaceRoot?: string;
+  readonly operation?: NotebookFileOperation;
+  readonly operationPath?: string;
+  readonly byteLength?: number;
+  readonly maxBytes?: number;
+  readonly currentRevision?: string;
+} {
+  if (error._tag === "NotebookSaveError") {
+    return {
+      failure: error.failure ?? "operation_failed",
+      ...(error.resolvedPath === undefined ? {} : { resolvedPath: error.resolvedPath }),
+      ...(error.resolvedWorkspaceRoot === undefined
+        ? {}
+        : { resolvedWorkspaceRoot: error.resolvedWorkspaceRoot }),
+      ...(error.operation === undefined ? {} : { operation: error.operation }),
+      ...(error.operationPath === undefined ? {} : { operationPath: error.operationPath }),
+      ...(error.byteLength === undefined ? {} : { byteLength: error.byteLength }),
+      ...(error.maxBytes === undefined ? {} : { maxBytes: error.maxBytes }),
+      ...(error.currentRevision === undefined ? {} : { currentRevision: error.currentRevision }),
+    };
+  }
+  const mapped = notebookFileFailureContext(error);
+  return mapped;
 }
 
 function projectSetupScriptCompatibilityDetail(
@@ -3115,6 +3151,22 @@ const makeWsRpcLayer = (
                   : new NotebookOpenError({
                       ...input,
                       ...notebookFileFailureContext(cause),
+                      cause,
+                    }),
+              ),
+            ),
+            { "rpc.aggregate": "workspace" },
+          ),
+        [WS_METHODS.notebooksSave]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.notebooksSave,
+            notebookDocument.save(input).pipe(
+              Effect.mapError((cause) =>
+                cause._tag === "NotebookSaveError"
+                  ? cause
+                  : new NotebookSaveError({
+                      ...input,
+                      ...notebookSaveFailureContext(cause),
                       cause,
                     }),
               ),

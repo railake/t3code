@@ -52,6 +52,9 @@ export function NotebookPreview(props: {
         ) : undefined
       }
     >
+      {props.document.capabilities.editing ? (
+        <FilePreviewNotice>Editing is available on web and desktop</FilePreviewNotice>
+      ) : null}
       {props.document.warnings.map((warning) => (
         <FilePreviewNotice key={warning}>{warning}</FilePreviewNotice>
       ))}

@@ -108,5 +108,15 @@ export function createProjectEnvironmentAtoms<R, E>(
       staleTimeMs: 30_000,
       idleTtlMs: 5 * 60_000,
     }),
+    saveNotebook: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:notebooks:save",
+      tag: WS_METHODS.notebooksSave,
+      scheduler: fileScheduler,
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId, input }) =>
+          JSON.stringify([environmentId, input.cwd, input.relativePath]),
+      },
+    }),
   };
 }

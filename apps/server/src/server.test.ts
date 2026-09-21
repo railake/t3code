@@ -714,7 +714,10 @@ const buildAppUnderTest = (options?: {
         Layer.provide(WorkspacePaths.layer),
         Layer.provide(workspaceEntriesLayer),
       ),
-      NotebookDocument.layer.pipe(Layer.provide(WorkspacePaths.layer)),
+      NotebookDocument.layer.pipe(
+        Layer.provide(WorkspacePaths.layer),
+        Layer.provide(workspaceEntriesLayer),
+      ),
       ProjectFaviconResolver.layer.pipe(
         Layer.provide(WorkspacePaths.layer),
         Layer.provide(T3ProjectFileLoader.layer),

@@ -463,7 +463,7 @@ function warningsFor(input: {
   const warnings: string[] = [];
   if (input.nbformat !== 4) {
     warnings.push(
-      `This notebook uses nbformat ${input.nbformat}. Unknown fields stay on disk; the viewer is read-only.`,
+      `This notebook uses nbformat ${input.nbformat}. Unknown fields stay on disk; editing requires nbformat 4.`,
     );
   }
   if (input.unknownCellCount > 0) {
@@ -565,8 +565,18 @@ export function notebookDocumentFromBytes(input: {
       cells,
       metadata,
       warnings,
-      readOnly: true,
-      capabilities: DEFAULT_CAPABILITIES,
+      readOnly: nbformat !== 4,
+      capabilities: {
+        ...DEFAULT_CAPABILITIES,
+        editing: nbformat === 4,
+      },
     },
   };
 }
+
+export {
+  applyNotebookEdits,
+  notebookCellSessionId,
+  notebookSourceLines,
+  type ApplyNotebookEditsResult,
+} from "./notebookEdits.ts";

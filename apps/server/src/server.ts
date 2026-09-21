@@ -421,7 +421,10 @@ const WorkspaceFileSystemLayerLive = WorkspaceFileSystem.layer.pipe(
   Layer.provide(WorkspaceEntriesLayerLive),
 );
 
-const NotebookDocumentLayerLive = NotebookDocument.layer.pipe(Layer.provide(WorkspacePaths.layer));
+const NotebookDocumentLayerLive = NotebookDocument.layer.pipe(
+  Layer.provide(WorkspacePaths.layer),
+  Layer.provide(WorkspaceEntriesLayerLive),
+);
 
 const WorkspaceLayerLive = Layer.mergeAll(
   WorkspacePaths.layer,

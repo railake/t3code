@@ -24,7 +24,7 @@ export function useFileSaveCoordinator({
 }: FileSaveOptions): Pick<FileSaveCoordinator, "change"> {
   const writeFile = useAtomCommand(projectEnvironment.writeFile);
   const session = useMemo(() => {
-    const coordinatorRef = createRef<FileSaveCoordinator>();
+    const coordinatorRef = createRef<FileSaveCoordinator<string>>();
     return {
       change: (contents: string) => coordinatorRef.current?.change(contents),
       setup: () => {
@@ -40,7 +40,7 @@ export function useFileSaveCoordinator({
             confirmProjectFileQueryData(environmentId, cwd, relativePath, confirmedContents);
           },
         });
-        coordinatorRef.current = coordinator;
+        coordinatorRef.current = coordinator as FileSaveCoordinator<string>;
         return () => {
           coordinatorRef.current = null;
           coordinator.dispose();

@@ -93,6 +93,9 @@ import {
   useProjectFileQuery,
 } from "./projectFilesQueryState";
 
+const NotebookSurface = lazy(() =>
+  import("./notebook/NotebookSurface").then((module) => ({ default: module.NotebookSurface })),
+);
 const NotebookPreview = lazy(() =>
   import("./NotebookPreview").then((module) => ({ default: module.NotebookPreview })),
 );
@@ -1254,13 +1257,26 @@ export default function FilePreviewPanel({
             </div>
           ) : relativePath && isNotebookPath && notebook.data ? (
             <Suspense fallback={<FileSurfaceLoading />}>
-              <NotebookPreview
-                key={relativePath}
-                document={notebook.data}
-                cwd={cwd}
-                threadRef={threadRef}
-                environmentId={environmentId}
-              />
+              {isHostFile || !notebook.data.capabilities.editing ? (
+                <NotebookPreview
+                  key={relativePath}
+                  document={notebook.data}
+                  cwd={cwd}
+                  threadRef={threadRef}
+                  environmentId={environmentId}
+                />
+              ) : (
+                <NotebookSurface
+                  key={relativePath}
+                  environmentId={environmentId}
+                  cwd={cwd}
+                  relativePath={relativePath}
+                  document={notebook.data}
+                  threadRef={threadRef}
+                  readOnly={false}
+                  onPendingChange={onPendingChange}
+                />
+              )}
             </Suspense>
           ) : relativePath && file.error && file.data === null ? (
             <div className="flex min-h-0 flex-1 items-center justify-center px-6 text-center text-xs leading-relaxed text-destructive">

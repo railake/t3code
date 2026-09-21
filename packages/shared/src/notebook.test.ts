@@ -110,7 +110,8 @@ describe("notebookDocumentFromBytes", () => {
     expect(raw).toEqual(frozen);
     expect(result.document.nbformat).toBe(4);
     expect(result.document.language).toBe("python");
-    expect(result.document.readOnly).toBe(true);
+    expect(result.document.readOnly).toBe(false);
+    expect(result.document.capabilities.editing).toBe(true);
     expect(result.document.capabilities.colabExecution).toBe(false);
     expect(result.document.capabilities.colabExecutionUnavailableReason).toMatch(
       /allowlist|Google/i,
@@ -253,6 +254,7 @@ describe("notebookDocumentFromBytes", () => {
     expect(result._tag).toBe("Success");
     if (result._tag !== "Success") return;
     expect(result.document.readOnly).toBe(true);
+    expect(result.document.capabilities.editing).toBe(false);
     expect(result.document.nbformat).toBe(5);
     expect(result.document.cells[0]?.source).toBe("still here");
     expect(result.document.warnings.some((warning) => /nbformat 5/i.test(warning))).toBe(true);

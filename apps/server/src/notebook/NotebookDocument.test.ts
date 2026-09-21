@@ -13,7 +13,10 @@ import * as WorkspaceEntries from "../workspace/WorkspaceEntries.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 import * as NotebookDocument from "./NotebookDocument.ts";
 
-const ProjectLayer = NotebookDocument.layer.pipe(Layer.provide(WorkspacePaths.layer));
+const ProjectLayer = NotebookDocument.layer.pipe(
+  Layer.provide(WorkspacePaths.layer),
+  Layer.provide(WorkspaceEntries.layer.pipe(Layer.provide(WorkspacePaths.layer))),
+);
 
 const TestLayer = Layer.empty.pipe(
   Layer.provideMerge(ProjectLayer),
@@ -140,6 +143,177 @@ it.layer(TestLayer, { excludeTestServices: true })("NotebookDocumentLive", (it) 
         if (error._tag !== "NotebookOpenError") return;
         expect(error.failure).toBe("document_too_large");
         expect(error.byteLength).toBe(NOTEBOOK_DOCUMENT_MAX_BYTES + 1);
+      }),
+    );
+  });
+
+  describe("save", () => {
+    it.effect("returns a new revision after merging cell edits", () =>
+      Effect.gen(function* () {
+        const notebooks = yield* NotebookDocument.NotebookDocument;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir;
+        // @effect-diagnostics-next-line preferSchemaOverJson:off
+        const raw = `${JSON.stringify(
+          {
+            nbformat: 4,
+            nbformat_minor: 5,
+            metadata: {
+              widgets: { keep: true },
+              kernelspec: { language: "python", name: "python3" },
+            },
+            cells: [
+              {
+                id: "code-1",
+                cell_type: "code",
+                source: ["print(1)\n"],
+                metadata: {},
+                outputs: [{ output_type: "stream", name: "stdout", text: "1\n" }],
+                execution_count: 1,
+                mystery: true,
+              },
+            ],
+          },
+          null,
+          1,
+        )}\n`;
+        yield* writeTextFile(cwd, "demo.ipynb", raw);
+        const opened = yield* notebooks.open({ cwd, relativePath: "demo.ipynb" });
+
+        const saved = yield* notebooks.save({
+          cwd,
+          relativePath: "demo.ipynb",
+          baseRevision: opened.revision,
+          cells: [
+            {
+              sessionId: "code-1",
+              persistentId: "code-1",
+              cellType: "code",
+              source: "print(2)\n",
+              metadata: {},
+              outputs: "keep",
+            },
+          ],
+        });
+
+        expect(saved.revision).not.toBe(opened.revision);
+        expect(saved.cells[0]?.source).toBe("print(2)\n");
+        // @effect-diagnostics-next-line preferSchemaOverJson:off
+        const onDisk = JSON.parse(
+          yield* fileSystem.readFileString(path.join(cwd, "demo.ipynb")),
+        ) as {
+          metadata: { widgets: unknown };
+          cells: Array<Record<string, unknown>>;
+        };
+        expect(onDisk.metadata.widgets).toEqual({ keep: true });
+        expect(onDisk.cells[0]?.mystery).toBe(true);
+        expect(onDisk.cells[0]?.source).toEqual(["print(2)\n"]);
+      }),
+    );
+
+    it.effect("conflicts when the file changed underneath", () =>
+      Effect.gen(function* () {
+        const notebooks = yield* NotebookDocument.NotebookDocument;
+        const cwd = yield* makeTempDir;
+        yield* writeTextFile(cwd, "demo.ipynb", notebookJson);
+        const opened = yield* notebooks.open({ cwd, relativePath: "demo.ipynb" });
+        yield* writeTextFile(
+          cwd,
+          "demo.ipynb",
+          // @effect-diagnostics-next-line preferSchemaOverJson:off
+          JSON.stringify({
+            nbformat: 4,
+            nbformat_minor: 5,
+            metadata: {},
+            cells: [
+              {
+                id: "code-1",
+                cell_type: "code",
+                source: ["print(changed)\n"],
+                metadata: {},
+                outputs: [],
+                execution_count: null,
+              },
+            ],
+          }),
+        );
+
+        const error = yield* notebooks
+          .save({
+            cwd,
+            relativePath: "demo.ipynb",
+            baseRevision: opened.revision,
+            cells: [
+              {
+                sessionId: "code-1",
+                persistentId: "code-1",
+                cellType: "code",
+                source: "print(9)\n",
+                metadata: {},
+                outputs: "keep",
+              },
+            ],
+          })
+          .pipe(Effect.flip);
+
+        expect(error._tag).toBe("NotebookSaveError");
+        if (error._tag !== "NotebookSaveError") return;
+        expect(error.failure).toBe("revision_conflict");
+        expect(error.message).toMatch(/changed on disk/i);
+        expect(error.currentRevision).toBeTruthy();
+      }),
+    );
+
+    it.effect("rejects absolute paths as read-only documents", () =>
+      Effect.gen(function* () {
+        const notebooks = yield* NotebookDocument.NotebookDocument;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir;
+        const absolutePath = path.join(cwd, "demo.ipynb");
+        yield* writeTextFile(cwd, "demo.ipynb", notebookJson);
+
+        const error = yield* notebooks
+          .save({
+            cwd,
+            relativePath: absolutePath,
+            baseRevision: "unused",
+            cells: [],
+          })
+          .pipe(Effect.flip);
+
+        expect(error._tag).toBe("NotebookSaveError");
+        if (error._tag !== "NotebookSaveError") return;
+        expect(error.failure).toBe("read_only_document");
+      }),
+    );
+
+    it.effect("leaves no temp file behind after a successful save", () =>
+      Effect.gen(function* () {
+        const notebooks = yield* NotebookDocument.NotebookDocument;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const cwd = yield* makeTempDir;
+        yield* writeTextFile(cwd, "demo.ipynb", notebookJson);
+        const opened = yield* notebooks.open({ cwd, relativePath: "demo.ipynb" });
+
+        yield* notebooks.save({
+          cwd,
+          relativePath: "demo.ipynb",
+          baseRevision: opened.revision,
+          cells: [
+            {
+              sessionId: "code-1",
+              persistentId: "code-1",
+              cellType: "code",
+              source: "print(3)\n",
+              metadata: {},
+              outputs: "clear",
+            },
+          ],
+        });
+
+        const entries = yield* fileSystem.readDirectory(cwd);
+        expect(entries.some((name) => name.includes(".t3-tmp-"))).toBe(false);
       }),
     );
   });
