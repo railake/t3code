@@ -7,6 +7,7 @@ import {
   HostProcessPlatform,
 } from "@t3tools/shared/hostProcess";
 import { resolveNodeExecutable, nodeRuntimeUnavailableMessage } from "@t3tools/shared/nodeRuntime";
+import { isCommandAvailable } from "@t3tools/shared/shell";
 import * as Clock from "effect/Clock";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
@@ -27,16 +28,20 @@ import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstab
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 import * as NodeCrypto from "node:crypto";
 import * as NodeFSP from "node:fs/promises";
+import * as NodeOS from "node:os";
 import type * as NodeStream from "node:stream";
 import * as Yauzl from "yauzl";
 
 import { ServerConfig } from "../config.ts";
+import { expandHomePathWith } from "../pathExpansion.ts";
 import { makeAntigravityAcpRuntime } from "./acp/AntigravityAcpSupport.ts";
 import {
   buildAntigravityAcpSpawnInput,
   prepareAntigravityProfile,
 } from "./antigravityAuthSupport.ts";
+import { resolveAntigravityUserHome } from "./Drivers/AntigravitySkills.ts";
 import {
+  antigravityReleaseArch,
   resolveAntigravityReleaseAsset,
   type AntigravityReleaseAsset,
 } from "./antigravityRelease.ts";
@@ -120,6 +125,8 @@ export class AntigravityInstallation extends Context.Service<
 export interface AntigravityInstallationOptions {
   readonly baseDir: string;
   readonly releaseAsset?: AntigravityReleaseAsset | null;
+  /** uname -m when known. Defaults to the host machine so aarch64 wins over an x64 Node. */
+  readonly hostMachine?: string;
   readonly validate?: (
     executable: AntigravityExecutable,
     expectedVersion: string,
@@ -275,16 +282,18 @@ export const makeAntigravityInstallation = Effect.fn("AntigravityInstallation.ma
   const platform = yield* HostProcessPlatform;
   const arch = yield* HostProcessArchitecture;
   const environment = yield* HostProcessEnvironment;
+  const hostMachine = options.hostMachine ?? NodeOS.machine();
+  const releaseArch = antigravityReleaseArch(hostMachine) ?? antigravityReleaseArch(arch) ?? arch;
   const releaseAsset =
     options.releaseAsset === undefined
-      ? resolveAntigravityReleaseAsset(platform, arch)
+      ? resolveAntigravityReleaseAsset(platform, arch, hostMachine)
       : options.releaseAsset;
   const names = executableNames(platform);
   const managedDirectory = path.join(
     options.baseDir,
     "tools",
     "antigravity-acp",
-    `${platform}-${arch}`,
+    `${platform}-${releaseArch}`,
   );
   const versionsDirectory = path.join(managedDirectory, "versions");
   const activePath = path.join(managedDirectory, "active.json");
@@ -366,8 +375,15 @@ export const makeAntigravityInstallation = Effect.fn("AntigravityInstallation.ma
     candidate: string,
     source: "override" | "path",
   ) {
-    if (!(yield* executableFile(candidate))) return null;
-    const executablePath = yield* fs.realPath(candidate);
+    // Manual CDN extracts are often a directory. Health checks resolve the
+    // ACP file inside it instead of treating the folder as missing.
+    const info = yield* fs.stat(candidate).pipe(Effect.option);
+    const executableCandidate =
+      Option.isSome(info) && info.value.type === "Directory"
+        ? path.join(candidate, names.executable)
+        : candidate;
+    if (!(yield* executableFile(executableCandidate))) return null;
+    const executablePath = yield* fs.realPath(executableCandidate);
     const directory = path.dirname(executablePath);
     const harnessPath = path.join(directory, names.harness);
     if (!(yield* executableFile(harnessPath))) return null;
@@ -401,16 +417,41 @@ export const makeAntigravityInstallation = Effect.fn("AntigravityInstallation.ma
       .map((directory) => path.resolve(directory, binary));
   };
 
+  const cliOnPath = (processEnvironment = environment) =>
+    isCommandAvailable("agy", { env: processEnvironment }).pipe(
+      Effect.provideService(HostProcessPlatform, platform),
+      Effect.provideService(FileSystem.FileSystem, fs),
+      Effect.provideService(Path.Path, path),
+    );
+
+  const wellKnownCandidates = (processEnvironment = environment) => {
+    const env = processEnvironment ?? environment;
+    const candidates: string[] = [];
+    const agyAcpBin = env.AGY_ACP_BIN?.trim();
+    if (agyAcpBin) candidates.push(agyAcpBin);
+    const userHome = resolveAntigravityUserHome(platform, env);
+    candidates.push(path.join(userHome, ".local", "opt", "agy-acp", "current"));
+    if (platform === "win32") {
+      const localAppData = env.LOCALAPPDATA?.trim();
+      if (localAppData) {
+        candidates.push(path.join(localAppData, "opt", "agy-acp", "current"));
+      }
+    }
+    return candidates;
+  };
+
   const resolve: AntigravityInstallationService["resolve"] = Effect.fn(
     "AntigravityInstallation.resolve",
   )(
     function* (binaryPath?: string, processEnvironment?: NodeJS.ProcessEnv) {
+      const env = processEnvironment ?? environment;
       const override = binaryPath?.trim();
       if (override) {
+        const expanded = expandHomePathWith(override, path);
         const candidates =
-          path.isAbsolute(override) || override.includes("/") || override.includes("\\")
-            ? [path.resolve(override)]
-            : pathCandidates(override, processEnvironment);
+          path.isAbsolute(expanded) || expanded.includes("/") || expanded.includes("\\")
+            ? [path.resolve(expanded)]
+            : pathCandidates(expanded, env);
         for (const candidate of candidates) {
           const selected = yield* fromExternal(candidate, "override");
           if (selected) return selected;
@@ -424,15 +465,25 @@ export const makeAntigravityInstallation = Effect.fn("AntigravityInstallation.ma
         const active = yield* readRecord(activePath, ActiveRelease);
         return yield* completedRelease(active.releaseId);
       }
-      for (const candidate of pathCandidates(names.executable, processEnvironment)) {
+      for (const candidate of wellKnownCandidates(env)) {
         const selected = yield* fromExternal(candidate, "path");
         if (selected) return selected;
+      }
+      for (const candidate of pathCandidates(names.executable, env)) {
+        const selected = yield* fromExternal(candidate, "path");
+        if (selected) return selected;
+      }
+      if (releaseAsset && (yield* cliOnPath(env))) {
+        return yield* installationError(
+          "resolve",
+          "The Antigravity CLI is installed, but T3 Code runs the separate Antigravity ACP agent. Install it in this environment or set a custom executable path.",
+        );
       }
       return yield* installationError(
         "resolve",
         releaseAsset
           ? "Antigravity is not installed. Install it in this environment or set a custom executable path."
-          : `Google does not publish an Antigravity runtime for ${platform}-${arch}. Use a supported environment or a custom executable.`,
+          : `Google does not publish an Antigravity runtime for ${platform}-${releaseArch}. Use a supported environment or a custom executable.`,
       );
     },
     Effect.mapError(
@@ -798,7 +849,7 @@ export const makeAntigravityInstallation = Effect.fn("AntigravityInstallation.ma
         if (!releaseAsset) {
           return yield* installationError(
             "start",
-            `Google does not publish an Antigravity runtime for ${platform}-${arch}. Use a supported remote environment or a custom executable.`,
+            `Google does not publish an Antigravity runtime for ${platform}-${releaseArch}. Use a supported remote environment or a custom executable.`,
           );
         }
         const operationId = yield* crypto.randomUUIDv4;
