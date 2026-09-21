@@ -2612,10 +2612,8 @@ export function resolvePackageManagerUserAgent(packageManager: string): string {
   return `${trimmed.slice(0, versionSeparator)}/${trimmed.slice(versionSeparator + 1)}`;
 }
 
-export function resolveDesktopProductName(version: string): string {
-  return resolveDesktopUpdateChannel(version) === "nightly"
-    ? "T3 Code (Nightly)"
-    : (desktopPackageJson.productName ?? "T3 Code");
+export function resolveDesktopProductName(_version: string): string {
+  return desktopPackageJson.productName ?? "T3 Code (railake)";
 }
 
 export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
@@ -2695,7 +2693,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       },
       protocols: [
         {
-          name: "T3 Code",
+          name: "T3 Code (railake)",
           schemes: ["t3code", "t3code-dev"],
         },
       ],
@@ -2742,7 +2740,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       // t3code:// OAuth callbacks to the app.
       protocols: [
         {
-          name: "T3 Code",
+          name: "T3 Code (railake)",
           schemes: ["t3code", "t3code-dev"],
         },
       ],
