@@ -10,13 +10,16 @@ function normalizeConfiguredBaseDir(t3Home: Option.Option<string>): Option.Optio
   return trimmed.length > 0 ? Option.some(trimmed) : Option.none();
 }
 
+// The packaged fork keeps its own home so it can run beside the official app
+// without sharing its live database. Dev keeps ~/.t3/dev.
 export function resolveDesktopBaseDir(input: {
   readonly homeDirectory: string;
+  readonly isDevelopment: boolean;
   readonly joinPath: JoinPath;
   readonly t3Home: Option.Option<string>;
 }): string {
   return Option.getOrElse(normalizeConfiguredBaseDir(input.t3Home), () =>
-    input.joinPath(input.homeDirectory, ".t3"),
+    input.joinPath(input.homeDirectory, input.isDevelopment ? ".t3" : ".t3-railake"),
   );
 }
 

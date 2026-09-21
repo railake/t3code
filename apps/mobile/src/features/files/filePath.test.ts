@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   fileRoutePathSegments,
   isSvgImagePreviewFile,
+  isNotebookPreviewFile,
   resolveWorkspaceRelativeFilePath,
   fileHeaderSubtitle,
 } from "./filePath";
@@ -42,6 +43,11 @@ describe("file preview types", () => {
   it("identifies SVG images that need web rendering", () => {
     expect(isSvgImagePreviewFile("assets/diagram.svg#icon")).toBe(true);
     expect(isSvgImagePreviewFile("assets/photo.png")).toBe(false);
+  });
+
+  it("identifies notebooks for the native viewer", () => {
+    expect(isNotebookPreviewFile("notebooks/train.ipynb")).toBe(true);
+    expect(isNotebookPreviewFile("notebooks/train.py")).toBe(false);
   });
 });
 

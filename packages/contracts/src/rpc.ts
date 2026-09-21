@@ -165,6 +165,13 @@ import {
   ProjectWriteFileResult,
 } from "./project.ts";
 import {
+  NotebookDocument,
+  NotebookOpenError,
+  NotebookOpenInput,
+  NotebookSaveError,
+  NotebookSaveInput,
+} from "./notebook.ts";
+import {
   TerminalAttachInput,
   TerminalAttachStreamEvent,
   TerminalClearInput,
@@ -282,6 +289,8 @@ export const WS_METHODS = {
   projectsSearchContents: "projects.searchContents",
   projectsSearchEntries: "projects.searchEntries",
   projectsWriteFile: "projects.writeFile",
+  notebooksOpen: "notebooks.open",
+  notebooksSave: "notebooks.save",
 
   // Shell methods
   shellOpenInEditor: "shell.openInEditor",
@@ -945,6 +954,18 @@ const WsProjectsWriteFileRpc = Rpc.make(WS_METHODS.projectsWriteFile, {
   error: Schema.Union([ProjectWriteFileError, EnvironmentAuthorizationError]),
 });
 
+const WsNotebooksOpenRpc = Rpc.make(WS_METHODS.notebooksOpen, {
+  payload: NotebookOpenInput,
+  success: NotebookDocument,
+  error: Schema.Union([NotebookOpenError, EnvironmentAuthorizationError]),
+});
+
+const WsNotebooksSaveRpc = Rpc.make(WS_METHODS.notebooksSave, {
+  payload: NotebookSaveInput,
+  success: NotebookDocument,
+  error: Schema.Union([NotebookSaveError, EnvironmentAuthorizationError]),
+});
+
 const WsShellOpenInEditorRpc = Rpc.make(WS_METHODS.shellOpenInEditor, {
   payload: LaunchEditorInput,
   error: Schema.Union([ExternalLauncherError, EnvironmentAuthorizationError]),
@@ -1458,6 +1479,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsSearchContentsRpc,
   WsProjectsSearchEntriesRpc,
   WsProjectsWriteFileRpc,
+  WsNotebooksOpenRpc,
+  WsNotebooksSaveRpc,
   WsShellOpenInEditorRpc,
   WsFilesystemBrowseRpc,
   WsAgentSessionsScanRpc,

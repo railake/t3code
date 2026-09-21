@@ -65,6 +65,25 @@ or use a package manager:
 | Arch Linux         | `yay -S t3code-bin`             |
 | Arch Linux nightly | `yay -S t3code-nightly-bin`     |
 
+### T3 Code (railake)
+
+This fork's desktop app is built from source. On an Apple silicon Mac with Xcode
+command line tools and [Rust](https://rustup.rs) installed, run
+`vp i && vp run dist:desktop:dmg:arm64` and open the DMG from `release/`. The
+build is unsigned, so right-click the app and choose **Open** on first launch.
+
+Unsigned apps can't install in-app updates. To update, run
+`node scripts/fork-update.ts` from the fork checkout, on its working branch. It
+merges upstream `main`, rebuilds, snapshots your database, and replaces the app
+(restarting it if it was open). If there are no new commits it does nothing, and
+`--force` rebuilds anyway. A merge conflict or failed build leaves the installed
+app and the branch untouched. `node scripts/fork-update.ts rollback` restores the
+previous app and the database from before that update. Progress is logged to
+`~/.t3-railake/fork-update.log`.
+
+It runs alongside the official T3 Code app and keeps its own data in
+`~/.t3-railake/userdata` instead of `~/.t3/userdata`.
+
 ### Windows Subsystem for Linux
 
 Choose a WSL distro in **Settings → Connections** to run agents and projects

@@ -41,7 +41,7 @@ describe("FileSaveCoordinator", () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(persist).toHaveBeenCalledOnce();
     expect(persist).toHaveBeenCalledWith("latest");
-    expect(onConfirmed).toHaveBeenCalledWith("latest");
+    expect(onConfirmed).toHaveBeenCalledWith("latest", undefined);
     expect(onPendingChange.mock.calls).toEqual([[true], [true], [false]]);
   });
 

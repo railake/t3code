@@ -1,30 +1,37 @@
 import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
 
-export interface FileSaveCoordinatorOptions<A, E> {
+export interface FileSaveCoordinatorOptions<T, A, E> {
   readonly debounceMs: number;
-  readonly persist: (contents: string) => Promise<AtomCommandResult<A, E>>;
+  readonly persist: (contents: T) => Promise<AtomCommandResult<A, E>>;
   readonly onPendingChange: (pending: boolean) => void;
-  readonly onConfirmed: (contents: string) => void;
+  readonly onConfirmed: (contents: T, result: A) => void;
 }
 
-export class FileSaveCoordinator<A = unknown, E = unknown> {
+export class FileSaveCoordinator<T = string, A = unknown, E = unknown> {
   private timer: ReturnType<typeof setTimeout> | null = null;
-  private latestContents = "";
+  private latestContents: T | undefined;
   private latestRevision = 0;
   private confirmedRevision = 0;
   private lastChangeAt = 0;
   private saving = false;
   private disposed = false;
 
-  constructor(private readonly options: FileSaveCoordinatorOptions<A, E>) {}
+  constructor(private readonly options: FileSaveCoordinatorOptions<T, A, E>) {}
 
-  change(contents: string): void {
+  change(contents: T): void {
     if (this.disposed) return;
     this.latestContents = contents;
     this.latestRevision += 1;
     this.lastChangeAt = Date.now();
     this.options.onPendingChange(true);
     this.schedule(this.options.debounceMs);
+  }
+
+  /** Flush immediately (Cmd/Ctrl+S). */
+  flush(): void {
+    if (this.disposed) return;
+    this.clearTimer();
+    void this.persistLatest();
   }
 
   dispose(): void {
@@ -49,6 +56,7 @@ export class FileSaveCoordinator<A = unknown, E = unknown> {
 
   private async persistLatest(): Promise<void> {
     if (this.saving || this.latestRevision === this.confirmedRevision) return;
+    if (this.latestContents === undefined) return;
 
     this.saving = true;
     const contents = this.latestContents;
@@ -57,7 +65,7 @@ export class FileSaveCoordinator<A = unknown, E = unknown> {
     const succeeded = result._tag === "Success";
     if (succeeded) {
       this.confirmedRevision = revision;
-      this.options.onConfirmed(contents);
+      this.options.onConfirmed(contents, result.value);
     }
 
     this.saving = false;

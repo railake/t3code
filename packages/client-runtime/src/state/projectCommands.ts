@@ -102,5 +102,21 @@ export function createProjectEnvironmentAtoms<R, E>(
           JSON.stringify([environmentId, input.cwd, input.relativePath]),
       },
     }),
+    openNotebook: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:notebooks:open",
+      tag: WS_METHODS.notebooksOpen,
+      staleTimeMs: 30_000,
+      idleTtlMs: 5 * 60_000,
+    }),
+    saveNotebook: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:notebooks:save",
+      tag: WS_METHODS.notebooksSave,
+      scheduler: fileScheduler,
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId, input }) =>
+          JSON.stringify([environmentId, input.cwd, input.relativePath]),
+      },
+    }),
   };
 }

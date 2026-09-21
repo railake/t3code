@@ -259,6 +259,14 @@
       "types": "./src/filePreview.ts",
       "import": "./src/filePreview.ts"
     },
+    "./notebook": {
+      "types": "./src/notebook.ts",
+      "import": "./src/notebook.ts"
+    },
+    "./colabParams": {
+      "types": "./src/colabParams.ts",
+      "import": "./src/colabParams.ts"
+    },
     "./imageDimensions": {
       "types": "./src/imageDimensions.ts",
       "import": "./src/imageDimensions.ts"

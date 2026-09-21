@@ -1,4 +1,4 @@
-// This file mostly exists because we want dev mode to say "T3 Code (Dev)" instead of "electron"
+// This file mostly exists because we want the Dock name to be "T3 Code (railake)" instead of "electron"
 
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
@@ -15,12 +15,12 @@ const repoRoot = NodePath.resolve(desktopDir, "..", "..");
 const devBundleIdSuffix = NodePath.basename(repoRoot)
   .toLowerCase()
   .replaceAll(/[^a-z0-9]+/g, "");
-const APP_DISPLAY_NAME = isDevelopment ? "T3 Code (Dev)" : "T3 Code (Alpha)";
+const APP_DISPLAY_NAME = "T3 Code (railake)";
 const APP_BUNDLE_ID = isDevelopment
   ? `com.t3tools.t3code.dev.${devBundleIdSuffix || "local"}`
-  : "com.t3tools.t3code";
+  : "com.t3tools.t3code.railake";
 const APP_PROTOCOL_SCHEMES = isDevelopment ? ["t3code-dev"] : ["t3code"];
-const LAUNCHER_VERSION = 19;
+const LAUNCHER_VERSION = 20;
 const developmentMacIconPngPath = NodePath.join(
   repoRoot,
   "assets",
@@ -100,7 +100,13 @@ export function resolveMacCodeSignArguments(appBundlePath) {
   return ["--force", "--deep", "--sign", "-", "--timestamp=none", appBundlePath];
 }
 
+/** Strip Finder/provenance xattrs so ad-hoc codesign accepts a freshly copied bundle. */
+export function clearMacBundleExtendedAttributes(appBundlePath) {
+  runChecked("xattr", ["-cr", appBundlePath]);
+}
+
 function signMacLauncherBundle(appBundlePath) {
+  clearMacBundleExtendedAttributes(appBundlePath);
   runChecked("codesign", resolveMacCodeSignArguments(appBundlePath));
 }
 
@@ -385,14 +391,11 @@ function buildMacLauncher(electronBinaryPath) {
   }
 
   NodeFS.rmSync(targetAppBundlePath, { recursive: true, force: true });
-  // verbatimSymlinks keeps the framework's relative symlinks intact
-  // (e.g. Resources -> Versions/Current/Resources). Without it cpSync
-  // rewrites them to absolute paths into node_modules, which escape the
-  // bundle and crash sandboxed helper processes (icudtl.dat not found).
-  NodeFS.cpSync(sourceAppBundlePath, targetAppBundlePath, {
-    recursive: true,
-    verbatimSymlinks: true,
-  });
+  // ditto --norsrc copies the Electron.app without FinderInfo/resource-fork
+  // xattrs. NodeFS.cpSync preserves those, and ad-hoc codesign then fails with
+  // "resource fork, Finder information, or similar detritus not allowed".
+  // verbatimSymlinks equivalent: ditto keeps framework relative symlinks intact.
+  runChecked("ditto", ["--norsrc", sourceAppBundlePath, targetAppBundlePath]);
   patchMainBundleInfoPlist(
     targetAppBundlePath,
     iconPath,

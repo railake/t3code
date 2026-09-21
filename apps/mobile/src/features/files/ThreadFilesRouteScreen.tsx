@@ -4,7 +4,12 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { Platform, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
-import { EnvironmentId, type ProjectReadFileResult, ThreadId } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  type NotebookDocument,
+  type ProjectReadFileResult,
+  ThreadId,
+} from "@t3tools/contracts";
 import { videoMimeType } from "@t3tools/shared/video";
 import {
   isWorkspaceBrowserPreviewPath,
@@ -39,6 +44,7 @@ import { useAppearancePreferences } from "../settings/appearance/AppearancePrefe
 import { ThreadRouteScreen } from "../threads/ThreadRouteScreen";
 import { FilePreviewLoading, FilePreviewNotice } from "./FilePreviewFeedback";
 import { FileMarkdownPreview } from "./FileMarkdownPreview";
+import { NotebookPreview } from "./NotebookPreview";
 import { FileTreeBrowser } from "./FileTreeBrowser";
 import { useFileTreeEntries } from "./useFileTreeEntries";
 import { preloadWorkspaceFileContents } from "./preload-workspace-file";
@@ -54,6 +60,7 @@ import {
   fileHeaderSubtitle,
   isAudioPreviewFile,
   isMarkdownPreviewFile,
+  isNotebookPreviewFile,
   isSvgImagePreviewFile,
   isVideoPreviewFile,
 } from "./filePath";
@@ -200,7 +207,8 @@ function defaultViewMode(path: string | null): FileViewMode {
     (isWorkspaceBrowserPreviewPath(path) ||
       isWorkspaceImagePreviewPath(path) ||
       isVideoPreviewFile(path) ||
-      isAudioPreviewFile(path))
+      isAudioPreviewFile(path) ||
+      isNotebookPreviewFile(path))
     ? "preview"
     : "source";
 }
@@ -216,6 +224,7 @@ function FileContent(props: {
   readonly mediaSource?: MediaActionsSource;
   readonly resolveVideoUri: () => Promise<string | null>;
   readonly fileContents: string | null;
+  readonly notebook: NotebookDocument | null;
   readonly fileError: string | null;
   readonly relativePath: string;
   readonly threadId: ThreadId | null;
@@ -226,6 +235,7 @@ function FileContent(props: {
   // Reopening a mutable host file must not reuse a poster from an earlier visit.
   const thumbnailInstanceId = useId();
   const isMarkdown = isMarkdownPreviewFile(props.relativePath);
+  const isNotebook = isNotebookPreviewFile(props.relativePath);
   const isBrowserFile = isWorkspaceBrowserPreviewPath(props.relativePath);
   const isImageFile = isWorkspaceImagePreviewPath(props.relativePath);
   const isVideoFile = isVideoPreviewFile(props.relativePath);
@@ -281,6 +291,28 @@ function FileContent(props: {
 
   if (props.activeMode === "preview" && isBrowserFile) {
     return <WorkspaceFileWebPreview uri={props.previewUri} />;
+  }
+
+  if (props.activeMode === "preview" && isNotebook) {
+    if (props.fileError && props.notebook === null) {
+      return (
+        <View className="flex-1 items-center justify-center bg-sheet px-6">
+          <EmptyState title="File unavailable" detail={props.fileError} />
+        </View>
+      );
+    }
+    if (props.notebook === null) {
+      return <FilePreviewLoading message="Loading notebook..." />;
+    }
+    return (
+      <NotebookPreview
+        document={props.notebook}
+        cwd={props.cwd}
+        environmentId={props.environmentId}
+        threadId={props.threadId}
+        onRefresh={props.onRefresh}
+      />
+    );
   }
 
   if (props.fileError && props.fileContents === null) {
@@ -591,6 +623,7 @@ export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
   const canPreview =
     relativePath !== null &&
     (isMarkdownPreviewFile(relativePath) ||
+      isNotebookPreviewFile(relativePath) ||
       isBrowserFile ||
       isImageFile ||
       isVideoFile ||
@@ -659,10 +692,12 @@ export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
   const handleRetryPreview = () => {
     void assetPreview.refresh().finally(() => setPreviewRevision((current) => current + 1));
   };
+  const isNotebookFile = relativePath !== null && isNotebookPreviewFile(relativePath);
   const needsFileContents =
     relativePath !== null &&
     !isVideoFile &&
     !isAudioFile &&
+    !isNotebookFile &&
     (resolvedActiveMode === "source" || isMarkdownPreviewFile(relativePath));
   const fileQuery = useEnvironmentQuery(
     environmentId !== null && cwd !== null && relativePath !== null && needsFileContents
@@ -672,7 +707,20 @@ export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
         })
       : null,
   );
+  const notebookQuery = useEnvironmentQuery(
+    environmentId !== null &&
+      cwd !== null &&
+      relativePath !== null &&
+      isNotebookFile &&
+      resolvedActiveMode === "preview"
+      ? projectEnvironment.openNotebook({
+          environmentId,
+          input: { cwd, relativePath },
+        })
+      : null,
+  );
   const fileData = fileQuery.data as ProjectReadFileResult | null;
+  const notebookData = notebookQuery.data as NotebookDocument | null;
 
   const handleSelectFile = useCallback(
     (path: string) => {
@@ -727,7 +775,8 @@ export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
 
   const fileMenuActions = useMemo(() => {
     if (relativePath === null) return [];
-    const canToggleMode = canPreview && !isImageFile && !isVideoFile && !isAudioFile;
+    const canToggleMode =
+      canPreview && !isImageFile && !isVideoFile && !isAudioFile && !isNotebookFile;
     return [
       canToggleMode
         ? ({
@@ -909,12 +958,13 @@ export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
           mediaSource={mediaSource}
           resolveVideoUri={assetPreview.refresh}
           fileContents={fileData?.contents ?? null}
-          fileError={fileQuery.error}
+          notebook={notebookData}
+          fileError={isNotebookFile ? notebookQuery.error : fileQuery.error}
           initialLine={targetLine}
           relativePath={relativePath}
           threadId={threadId}
           truncated={fileData?.truncated ?? false}
-          onRefresh={() => fileQuery.refresh()}
+          onRefresh={() => (isNotebookFile ? notebookQuery.refresh() : fileQuery.refresh())}
         />
       </MaterialScreenContent>
       <FilePreviewModal

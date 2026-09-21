@@ -66,6 +66,14 @@ it.each([
     renderedMode: "html",
     activeMode: "source",
   },
+  {
+    kind: "notebook",
+    hasTable: false,
+    hasEnvironment: false,
+    rendered: true,
+    renderedMode: "notebook",
+    activeMode: "notebook",
+  },
 ] as const)("matches the available preview for %j", ({ renderedMode, activeMode, ...input }) => {
   expect(attachmentDocumentPresentation(input)).toEqual({ renderedMode, activeMode });
 });

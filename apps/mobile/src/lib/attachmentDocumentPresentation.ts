@@ -13,7 +13,9 @@ export function attachmentDocumentPresentation(input: {
       ? "markdown"
       : input.kind === "html"
         ? "html"
-        : null;
+        : input.kind === "notebook"
+          ? "notebook"
+          : null;
   return {
     renderedMode,
     activeMode: input.rendered && renderedMode !== null ? renderedMode : "source",

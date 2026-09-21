@@ -1,6 +1,9 @@
 import { filePreviewDelimiter, parseDelimitedPreview } from "@t3tools/shared/delimitedPreview";
-import type { EnvironmentId } from "@t3tools/contracts";
-import { readFilePreviewResponse } from "@t3tools/client-runtime/file-preview";
+import type { EnvironmentId, NotebookDocument } from "@t3tools/contracts";
+import {
+  readFilePreviewResponse,
+  readNotebookPreviewDocument,
+} from "@t3tools/client-runtime/file-preview";
 import { filePreviewKind, FILE_TEXT_PREVIEW_MAX_BYTES } from "@t3tools/shared/filePreview";
 import { fetch } from "expo/fetch";
 import { File } from "expo-file-system";
@@ -50,6 +53,7 @@ export function useAttachmentDocument(input: {
   const [localUri, setLocalUri] = useState<string | null>(null);
   const [remoteUri, setRemoteUri] = useState<string | null>(null);
   const [content, setContent] = useState<{ text: string; truncated: boolean } | null>(null);
+  const [notebook, setNotebook] = useState<NotebookDocument | null>(null);
   const table = useMemo(
     () => (content && delimiter ? parseDelimitedPreview(content.text, delimiter) : null),
     [content, delimiter],
@@ -101,6 +105,7 @@ export function useAttachmentDocument(input: {
     // oxlint-disable-next-line react/set-state-in-effect -- A new attachment invalidates the last one.
     setLocalUri(null);
     setContent(null);
+    setNotebook(null);
     setContentError(null);
     const controller = new AbortController();
     let release: (() => void) | undefined;
@@ -122,6 +127,7 @@ export function useAttachmentDocument(input: {
     };
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Retry must reacquire a local file lease after a failed load.
   }, [attachment, revision]);
+  const needsNotebook = kind === "notebook";
   const needsText = kind === "text" || kind === "markdown" || (kind === "html" && !rendered);
   const sizeBytes = input.sizeBytes;
   useEffect(() => {
@@ -165,6 +171,43 @@ export function useAttachmentDocument(input: {
       });
     return () => controller.abort();
   }, [uri, needsText, revision, sizeBytes, refresh]);
+  useEffect(() => {
+    if (!uri || !needsNotebook) return;
+    const controller = new AbortController();
+    // oxlint-disable-next-line react/set-state-in-effect -- A new notebook request must drop the previous parse.
+    setNotebook(null);
+    setContentError(null);
+    const response = isLocalUri(uri)
+      ? Promise.resolve().then(() => ({ ok: true, body: new File(uri).readableStream() }))
+      : (async () => {
+          const authorized = textReadUrl.current;
+          let target = authorized?.uri ?? uri;
+          if (!authorized || Date.now() - authorized.authorizedAt > STALE_URL_MS) {
+            const refreshed = await refresh();
+            if (!refreshed) throw new Error("Reconnect to this environment and try again.");
+            target = refreshed;
+            if (!controller.signal.aborted) {
+              textReadUrl.current = { uri: refreshed, authorizedAt: Date.now() };
+            }
+          }
+          return fetch(target, {
+            signal: controller.signal,
+            headers: revision > 0 ? { "Cache-Control": "no-cache" } : {},
+          });
+        })();
+    void response
+      .then((value) =>
+        readNotebookPreviewDocument(value, controller.signal, { relativePath: input.name }),
+      )
+      .then((value) => {
+        if (!controller.signal.aborted) setNotebook(value);
+      })
+      .catch((cause: unknown) => {
+        if (!controller.signal.aborted)
+          setContentError(cause instanceof Error ? cause.message : "Could not read this notebook.");
+      });
+    return () => controller.abort();
+  }, [uri, needsNotebook, revision, refresh, input.name]);
   const share = async () => {
     if (!uri || sharing) return;
     setSharing(true);
@@ -195,9 +238,11 @@ export function useAttachmentDocument(input: {
     /** Native viewers resolve their own fresh URL from this instead of reusing `uri`. */
     resource,
     content,
+    notebook,
     table,
-    error: error ?? (needsText ? contentError : null),
+    error: error ?? (needsText || needsNotebook ? contentError : null),
     needsText,
+    needsNotebook,
     rendered,
     setRendered,
     revision,
