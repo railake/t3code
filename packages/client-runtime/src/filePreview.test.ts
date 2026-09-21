@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import { FILE_TEXT_PREVIEW_MAX_BYTES } from "@t3tools/shared/filePreview";
-import { readFilePreviewResponse } from "./filePreview.ts";
+import { readFilePreviewResponse, readNotebookPreviewDocument } from "./filePreview.ts";
 
 describe("readFilePreviewResponse", () => {
   it("cancels a pending read when its preview closes", async () => {
@@ -63,5 +63,27 @@ describe("readFilePreviewResponse", () => {
     expect(result.text.length).toBe(FILE_TEXT_PREVIEW_MAX_BYTES);
     expect(result.truncated).toBe(true);
     expect(cancelled).toBe(true);
+  });
+});
+
+describe("readNotebookPreviewDocument", () => {
+  it("opens a complete notebook and refuses a truncated JSON prefix", async () => {
+    const notebook = JSON.stringify({
+      nbformat: 4,
+      nbformat_minor: 5,
+      metadata: {},
+      cells: [{ cell_type: "markdown", source: "# Hi", metadata: {} }],
+    });
+    const signal = new AbortController().signal;
+    const document = await readNotebookPreviewDocument(new Response(notebook), signal, {
+      relativePath: "demo.ipynb",
+    });
+    expect(document.cells[0]?.source).toBe("# Hi");
+    expect(document.capabilities.colabExecution).toBe(false);
+    await expect(
+      readNotebookPreviewDocument(new Response(notebook.slice(0, 20)), signal, {
+        relativePath: "cut.ipynb",
+      }),
+    ).rejects.toThrow("not valid notebook JSON");
   });
 });

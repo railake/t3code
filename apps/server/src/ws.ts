@@ -66,6 +66,9 @@ import {
   FilesystemBrowseError,
   AssetWorkspaceContextNotFoundError,
   AssetWorkspaceContextResolutionError,
+  NotebookOpenError,
+  type NotebookOpenFailure,
+  type NotebookFileOperation,
   RpcClientId,
   EnvironmentAuthorizationError,
   ThreadId,
@@ -129,6 +132,7 @@ import { deletePendingAttachment, issueAttachmentUploadUrl } from "./assets/Atta
 import * as PortScanner from "./preview/PortScanner.ts";
 import * as WorkspaceEntries from "./workspace/WorkspaceEntries.ts";
 import * as WorkspaceFileSystem from "./workspace/WorkspaceFileSystem.ts";
+import * as NotebookDocument from "./notebook/NotebookDocument.ts";
 import { readWorkflowScript } from "./orchestration/workflowScriptQuery.ts";
 import * as WorkspacePaths from "./workspace/WorkspacePaths.ts";
 import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
@@ -322,6 +326,54 @@ function projectFileFailureContext(
     default:
       return unexpectedCompatibilityError(error);
   }
+}
+
+function notebookFileFailureContext(
+  error:
+    | WorkspaceFileSystem.WorkspaceFileSystemError
+    | WorkspacePaths.WorkspacePathOutsideRootError
+    | NotebookOpenError,
+): {
+  readonly failure: NotebookOpenFailure;
+  readonly resolvedPath?: string;
+  readonly resolvedWorkspaceRoot?: string;
+  readonly operation?: NotebookFileOperation;
+  readonly operationPath?: string;
+  readonly byteLength?: number;
+  readonly maxBytes?: number;
+} {
+  if (error._tag === "NotebookOpenError") {
+    return {
+      failure: error.failure ?? "operation_failed",
+      ...(error.resolvedPath === undefined ? {} : { resolvedPath: error.resolvedPath }),
+      ...(error.resolvedWorkspaceRoot === undefined
+        ? {}
+        : { resolvedWorkspaceRoot: error.resolvedWorkspaceRoot }),
+      ...(error.operation === undefined ? {} : { operation: error.operation }),
+      ...(error.operationPath === undefined ? {} : { operationPath: error.operationPath }),
+      ...(error.byteLength === undefined ? {} : { byteLength: error.byteLength }),
+      ...(error.maxBytes === undefined ? {} : { maxBytes: error.maxBytes }),
+    };
+  }
+  const mapped = projectFileFailureContext(error);
+  const operation =
+    mapped.operation === "realpath-workspace-root" ||
+    mapped.operation === "realpath-target" ||
+    mapped.operation === "open" ||
+    mapped.operation === "stat" ||
+    mapped.operation === "read" ||
+    mapped.operation === "close"
+      ? mapped.operation
+      : undefined;
+  return {
+    failure: mapped.failure,
+    ...(mapped.resolvedPath === undefined ? {} : { resolvedPath: mapped.resolvedPath }),
+    ...(mapped.resolvedWorkspaceRoot === undefined
+      ? {}
+      : { resolvedWorkspaceRoot: mapped.resolvedWorkspaceRoot }),
+    ...(operation === undefined ? {} : { operation }),
+    ...(mapped.operationPath === undefined ? {} : { operationPath: mapped.operationPath }),
+  };
 }
 
 function projectSetupScriptCompatibilityDetail(
@@ -573,6 +625,7 @@ const makeWsRpcLayer = (
       const startup = yield* ServerRuntimeStartup.ServerRuntimeStartup;
       const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
       const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+      const notebookDocument = yield* NotebookDocument.NotebookDocument;
       const canReplayPersistedRange = Effect.fnUntraced(function* (
         afterSequence: number,
         headSequence: number,
@@ -3048,6 +3101,22 @@ const makeWsRpcLayer = (
                     ...projectFileFailureContext(cause),
                     cause,
                   }),
+              ),
+            ),
+            { "rpc.aggregate": "workspace" },
+          ),
+        [WS_METHODS.notebooksOpen]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.notebooksOpen,
+            notebookDocument.open(input).pipe(
+              Effect.mapError((cause) =>
+                cause._tag === "NotebookOpenError"
+                  ? cause
+                  : new NotebookOpenError({
+                      ...input,
+                      ...notebookFileFailureContext(cause),
+                      cause,
+                    }),
               ),
             ),
             { "rpc.aggregate": "workspace" },

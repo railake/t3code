@@ -1,7 +1,10 @@
 import { filePreviewDelimiter } from "@t3tools/shared/delimitedPreview";
-import type { EnvironmentId } from "@t3tools/contracts";
+import type { EnvironmentId, NotebookDocument } from "@t3tools/contracts";
 import { formatAttachmentSize } from "@t3tools/client-runtime/state/attachments";
-import { readFilePreviewResponse } from "@t3tools/client-runtime/file-preview";
+import {
+  readFilePreviewResponse,
+  readNotebookPreviewDocument,
+} from "@t3tools/client-runtime/file-preview";
 import { filePreviewKind, FILE_TEXT_PREVIEW_MAX_BYTES } from "@t3tools/shared/filePreview";
 import {
   CheckIcon,
@@ -37,6 +40,9 @@ import {
 } from "./fileSurfaceChrome";
 
 const SourcePreview = lazy(() => import("./ReadOnlySourcePreview"));
+const NotebookPreview = lazy(() =>
+  import("./NotebookPreview").then((module) => ({ default: module.NotebookPreview })),
+);
 
 /** Signed asset URLs live for an hour; treat anything older than this as worth re-minting. */
 const STALE_URL_MS = 5 * 60_000;
@@ -106,6 +112,7 @@ export function AttachmentFilePreview(props: {
   const [rendered, setRendered] = useState(true);
   const [revision, setRevision] = useState(0);
   const [content, setContent] = useState<{ text: string; truncated: boolean } | null>(null);
+  const [notebook, setNotebook] = useState<NotebookDocument | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Reading source is a separate failure from loading the file: a rendered HTML page can be
   // fine while its bytes are not UTF-8, and switching back to the page must not stay stuck.
@@ -142,6 +149,7 @@ export function AttachmentFilePreview(props: {
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Retry must reauthorize the remote file.
   }, [props.file, refresh, revision]);
   const url = props.file ? localUrl : remoteUrl;
+  const needsNotebook = kind === "notebook";
   const needsText = kind === "text" || kind === "markdown" || (kind === "html" && !rendered);
   useEffect(() => {
     if (!needsText || !url) return;
@@ -181,7 +189,41 @@ export function AttachmentFilePreview(props: {
     });
     return () => controller.abort();
   }, [url, needsText, revision, props.sizeBytes, props.file, refresh]);
-  const failure = error ?? (needsText ? contentError : null);
+  useEffect(() => {
+    if (!needsNotebook || !url) return;
+    const controller = new AbortController();
+    // oxlint-disable-next-line react/set-state-in-effect -- A new notebook request must drop the previous parse.
+    setNotebook(null);
+    setContentError(null);
+    const file = props.file;
+    void (async () => {
+      if (!file && Date.now() - authorizedAt.current > STALE_URL_MS) {
+        const target = await refresh();
+        if (controller.signal.aborted) return;
+        if (!target) throw new Error("Reconnect to the environment and try again.");
+        authorizedAt.current = Date.now();
+        if (target !== url) {
+          setRemoteUrl(target);
+          return;
+        }
+      }
+      const response = file
+        ? { ok: true, body: file.stream() }
+        : await fetch(url, {
+            signal: controller.signal,
+            cache: revision === 0 ? "default" : "reload",
+          });
+      const document = await readNotebookPreviewDocument(response, controller.signal, {
+        relativePath: props.name,
+      });
+      if (!controller.signal.aborted) setNotebook(document);
+    })().catch((cause: unknown) => {
+      if (!controller.signal.aborted)
+        setContentError(cause instanceof Error ? cause.message : "Could not load this notebook.");
+    });
+    return () => controller.abort();
+  }, [url, needsNotebook, revision, props.file, props.name, refresh]);
+  const failure = error ?? (needsText || needsNotebook ? contentError : null);
   const wordWrap = useClientSettings((settings) => settings.wordWrap);
   const updateClientSettings = useUpdateClientSettings();
   // Only the raw-text body honours word wrap. A rendered table or Markdown lays itself out,
@@ -238,8 +280,12 @@ export function AttachmentFilePreview(props: {
         setRevision((value) => value + 1);
       }}
     />
-  ) : !url || (needsText && !content) ? (
+  ) : !url || (needsText && !content) || (needsNotebook && !notebook) ? (
     <FileSurfaceLoading />
+  ) : needsNotebook && notebook ? (
+    <Suspense fallback={<FileSurfaceLoading />}>
+      <NotebookPreview document={notebook} />
+    </Suspense>
   ) : needsText && content ? (
     delimiter && rendered ? (
       <DelimitedTablePreview name={props.name} text={content.text} delimiter={delimiter} />

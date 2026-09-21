@@ -115,6 +115,10 @@ export function isMarkdownPreviewFile(path: string): boolean {
   return /\.(?:md|mdx)$/i.test(path.split(/[?#]/, 1)[0] ?? "");
 }
 
+export function isNotebookPreviewFile(path: string): boolean {
+  return /\.ipynb$/i.test(path.split(/[?#]/, 1)[0] ?? "");
+}
+
 export function fileBreadcrumbs(projectName: string, relativePath: string): FileBreadcrumb[] {
   const parts = relativePath.split("/").filter(Boolean);
   return [

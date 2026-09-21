@@ -21,6 +21,7 @@ import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { removeComposerDraftAttachment, useComposerDraft } from "../../state/use-composer-drafts";
 import { FilePreviewLoading, FilePreviewNotice } from "./FilePreviewFeedback";
 import { FileMarkdownPreview } from "./FileMarkdownPreview";
+import { NotebookPreview } from "./NotebookPreview";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { SourceFileSurface } from "./SourceFileSurface";
 import { WorkspaceFileWebPreview } from "./WorkspaceFileWebPreview";
@@ -74,8 +75,22 @@ function AttachmentDocumentBody(props: {
   if (props.nativeViewer !== null && props.nativeViewer !== "unavailable") {
     return <FilePreviewLoading message="Opening in file viewer..." />;
   }
-  if (!document.uri || (document.needsText && !document.content)) {
+  if (
+    !document.uri ||
+    (document.needsText && !document.content) ||
+    (document.needsNotebook && !document.notebook)
+  ) {
     return <FilePreviewLoading message="Loading file..." />;
+  }
+  if (document.needsNotebook && document.notebook && props.environmentId) {
+    return (
+      <NotebookPreview
+        document={document.notebook}
+        cwd=""
+        environmentId={props.environmentId}
+        threadId={null}
+      />
+    );
   }
   if (document.needsText && document.content) {
     const { content, table } = document;

@@ -11,6 +11,7 @@ import {
   isWorkspaceAudioPreviewPath,
   isWorkspaceImagePreviewPath,
   isWorkspaceVideoPreviewPath,
+  isNotebookPreviewPath,
 } from "@t3tools/shared/filePreview";
 import { VirtualizedFile, type SelectedLineRange } from "@pierre/diffs";
 import { Editor } from "@pierre/diffs/editor";
@@ -23,7 +24,7 @@ import {
 import { mediaFileReference } from "@t3tools/client-runtime/media-reference";
 import { Code2, Eye, FolderTree, Globe2, Table2, WrapTextIcon } from "lucide-react";
 import * as Schema from "effect/Schema";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, lazy, Suspense } from "react";
 
 import { isBrowserPreviewFile, openFileInPreview } from "~/browser/openFileInPreview";
 import { useAssetUrlRefresh, useAssetUrlState } from "~/assets/assetUrls";
@@ -85,11 +86,16 @@ import {
   shouldShowFileExplorer,
 } from "./filePreviewMode";
 import { useFileSaveCoordinator } from "./useFileSaveCoordinator";
+import { useNotebookQuery } from "./notebooksQueryState";
 import {
   getOptimisticProjectFileQueryData,
   setProjectFileQueryData,
   useProjectFileQuery,
 } from "./projectFilesQueryState";
+
+const NotebookPreview = lazy(() =>
+  import("./NotebookPreview").then((module) => ({ default: module.NotebookPreview })),
+);
 
 interface FilePreviewPanelProps {
   environmentId: EnvironmentId;
@@ -934,6 +940,7 @@ export default function FilePreviewPanel({
   const isVideo = relativePath !== null && isWorkspaceVideoPreviewPath(relativePath);
   const isAudio = relativePath !== null && !isVideo && isWorkspaceAudioPreviewPath(relativePath);
   const isImage = relativePath !== null && !isVideo && isWorkspaceImagePreviewPath(relativePath);
+  const isNotebookPath = relativePath !== null && isNotebookPreviewPath(relativePath);
   const isMedia = isImage || isVideo || isAudio;
   // PDFs have no text to show; HTML has, and can toggle between page and source.
   const isPdf = relativePath !== null && isPdfPreviewFile(relativePath);
@@ -945,13 +952,24 @@ export default function FilePreviewPanel({
   // shown. The read still runs: a folder named `assets.png` is only knowable as a
   // folder from the read failure, and the server stats before reading, so a folder
   // costs an open and a stat and returns no body.
-  const file = useProjectFileQuery(environmentId, cwd, relativePath, attachment === undefined);
+  const file = useProjectFileQuery(
+    environmentId,
+    cwd,
+    relativePath,
+    attachment === undefined && !isNotebookPath,
+  );
+  const notebook = useNotebookQuery(
+    environmentId,
+    cwd,
+    relativePath,
+    attachment === undefined && isNotebookPath,
+  );
   // A chat link cannot tell a folder from a file, so a folder arrives here as
   // a file surface and the read fails. Keep the breadcrumbs, drop the preview
   // pane, and let the tree fill the surface with the folder revealed. Mutation
   // refresh stays on so the surface notices if the path becomes a file. A host
   // path cannot be revealed in the workspace tree, so it keeps the read error.
-  const isDirectory = file.isNotFile && !isHostFile;
+  const isDirectory = (file.isNotFile || notebook.isNotFile) && !isHostFile;
   // Everything preview-related keys off previewPath; a folder has no preview.
   const previewPath = isDirectory ? null : relativePath;
   const [explorerOpen, setExplorerOpen] = useState(initialExplorerOpen);
@@ -1037,7 +1055,7 @@ export default function FilePreviewPanel({
       (isDirectory || (!isMedia && !isPdf)) &&
       !selectedFilePending,
     mutationId: workspaceMutationId,
-    refresh: file.refresh,
+    refresh: isNotebookPath ? notebook.refresh : file.refresh,
     resourceKey: `file:${environmentId}:${cwd}:${relativePath ?? ""}`,
   });
 
@@ -1226,6 +1244,24 @@ export default function FilePreviewPanel({
               title={relativePath}
               workspaceMutationId={workspaceMutationId}
             />
+          ) : relativePath && isNotebookPath && notebook.error && notebook.data === null ? (
+            <div className="flex min-h-0 flex-1 items-center justify-center px-6 text-center text-xs leading-relaxed text-destructive">
+              {notebook.error}
+            </div>
+          ) : relativePath && isNotebookPath && notebook.data === null ? (
+            <div className="flex min-h-0 flex-1 items-center justify-center text-muted-foreground">
+              <Spinner className="size-5" />
+            </div>
+          ) : relativePath && isNotebookPath && notebook.data ? (
+            <Suspense fallback={<FileSurfaceLoading />}>
+              <NotebookPreview
+                key={relativePath}
+                document={notebook.data}
+                cwd={cwd}
+                threadRef={threadRef}
+                environmentId={environmentId}
+              />
+            </Suspense>
           ) : relativePath && file.error && file.data === null ? (
             <div className="flex min-h-0 flex-1 items-center justify-center px-6 text-center text-xs leading-relaxed text-destructive">
               {file.error}
@@ -1301,7 +1337,7 @@ export default function FilePreviewPanel({
               onOpenFile={onOpenFile}
               workspaceMutationId={workspaceMutationId}
               {...(previewPath && !isMedia && !isPdf
-                ? { onRefreshSelectedFile: file.refresh }
+                ? { onRefreshSelectedFile: isNotebookPath ? notebook.refresh : file.refresh }
                 : {})}
             />
           </aside>

@@ -198,6 +198,8 @@ export function FileMarkdownPreview(props: {
   /** Absent for a file opened from a project draft, which has no thread yet. */
   readonly threadId: ThreadId | null;
   readonly onRefresh?: () => Promise<void> | void;
+  /** Render without its own scroll surface so a parent list can own scrolling. */
+  readonly embedded?: boolean;
 }) {
   const [isPullRefreshing, setIsPullRefreshing] = useState(false);
   const handlePullToRefresh = useCallback(async () => {
@@ -250,6 +252,32 @@ export function FileMarkdownPreview(props: {
     void tryOpenExternalUrl(href, "markdown-link");
   }, []);
 
+  const body = (
+    <View className={props.embedded ? "px-3 py-3" : "mx-auto w-full max-w-[760px]"}>
+      {hasNativeSelectableMarkdownText() ? (
+        <SelectableMarkdownText
+          markdown={props.markdown}
+          onLinkPress={onLinkPress}
+          renderImage={renderImage}
+          textStyle={styles.nativeTextStyle}
+        />
+      ) : (
+        <Markdown
+          options={{ gfm: true }}
+          renderers={styles.renderers}
+          styles={styles.styles}
+          theme={styles.theme}
+        >
+          {props.markdown}
+        </Markdown>
+      )}
+    </View>
+  );
+
+  if (props.embedded) {
+    return body;
+  }
+
   return (
     <ScrollView
       className="flex-1 bg-sheet"
@@ -263,25 +291,7 @@ export function FileMarkdownPreview(props: {
         ) : undefined
       }
     >
-      <View className="mx-auto w-full max-w-[760px]">
-        {hasNativeSelectableMarkdownText() ? (
-          <SelectableMarkdownText
-            markdown={props.markdown}
-            onLinkPress={onLinkPress}
-            renderImage={renderImage}
-            textStyle={styles.nativeTextStyle}
-          />
-        ) : (
-          <Markdown
-            options={{ gfm: true }}
-            renderers={styles.renderers}
-            styles={styles.styles}
-            theme={styles.theme}
-          >
-            {props.markdown}
-          </Markdown>
-        )}
-      </View>
+      {body}
     </ScrollView>
   );
 }

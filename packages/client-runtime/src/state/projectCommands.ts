@@ -102,5 +102,11 @@ export function createProjectEnvironmentAtoms<R, E>(
           JSON.stringify([environmentId, input.cwd, input.relativePath]),
       },
     }),
+    openNotebook: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:notebooks:open",
+      tag: WS_METHODS.notebooksOpen,
+      staleTimeMs: 30_000,
+      idleTtlMs: 5 * 60_000,
+    }),
   };
 }

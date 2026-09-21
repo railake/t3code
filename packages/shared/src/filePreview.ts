@@ -1,3 +1,4 @@
+import { isNotebookPreviewFile } from "./notebook.ts";
 import { videoMimeType } from "./video.ts";
 
 export type FilePreviewKind =
@@ -7,8 +8,11 @@ export type FilePreviewKind =
   | "pdf"
   | "html"
   | "markdown"
+  | "notebook"
   | "text"
   | "unsupported";
+
+export { isNotebookPreviewFile, isNotebookPreviewPath } from "./notebook.ts";
 
 /** Content classification is identical for captured attachments and workspace references. */
 export function filePreviewKind(file: {
@@ -19,6 +23,7 @@ export function filePreviewKind(file: {
   const name = file.name.toLowerCase();
   const extension = name.slice(name.lastIndexOf("."));
   const generic = !mime || mime === "application/octet-stream" || mime === "text/plain";
+  if (isNotebookPreviewFile(file)) return "notebook";
   if (mime === "application/pdf") return "pdf";
   if (mime === "text/html") return "html";
   if (mime === "text/markdown" || mime === "text/x-markdown") return "markdown";
