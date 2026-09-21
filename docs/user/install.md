@@ -65,6 +65,17 @@ or use a package manager:
 | Arch Linux         | `yay -S t3code-bin`             |
 | Arch Linux nightly | `yay -S t3code-nightly-bin`     |
 
+### T3 Code (railake)
+
+This fork's desktop app is built from source. On an Apple silicon Mac with Xcode
+command line tools and [Rust](https://rustup.rs) installed, run
+`vp i && vp run dist:desktop:dmg:arm64` and open the DMG from `release/`. The
+build is unsigned, so right-click the app and choose **Open** on first launch. It
+does not update itself; rebuild to update.
+
+It runs alongside the official T3 Code app and keeps its own data in
+`~/.t3-railake/userdata` instead of `~/.t3/userdata`.
+
 ### Windows Subsystem for Linux
 
 Choose a WSL distro in **Settings → Connections** to run agents and projects
