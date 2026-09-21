@@ -54,7 +54,8 @@ class UpdateError extends Error {}
 
 // ELECTRON_RUN_AS_NODE leaks in from T3 Code terminals and turns Electron into
 // plain Node. The feed variables would bake an update feed into an unsigned app
-// that can download updates but never install them.
+// that can download updates but never install them. The build spawns `vp`, which
+// is only guaranteed to exist in the repo's node_modules.
 const childEnv: NodeJS.ProcessEnv = {
   ...Object.fromEntries(
     Object.entries(process.env).filter(
@@ -64,9 +65,11 @@ const childEnv: NodeJS.ProcessEnv = {
         ),
     ),
   ),
-  PATH: [NodePath.join(NodeOS.homedir(), ".cargo", "bin"), process.env.PATH ?? ""].join(
-    NodePath.delimiter,
-  ),
+  PATH: [
+    NodePath.join(import.meta.dirname, "..", "node_modules", ".bin"),
+    NodePath.join(NodeOS.homedir(), ".cargo", "bin"),
+    process.env.PATH ?? "",
+  ].join(NodePath.delimiter),
 };
 
 function log(message: string, options: { readonly quiet?: boolean } = {}): void {
@@ -182,8 +185,8 @@ function assertForkIdentity(repo: string): void {
 }
 
 async function buildStagedApp(repo: string, options: { readonly skipChecks: boolean }) {
-  const vp = NodePath.join(repo, "node_modules", ".bin", "vp");
-  await run(NodeFS.existsSync(vp) ? vp : "vp", ["i"], repo);
+  const vp = "vp";
+  await run(vp, ["i"], repo);
   if (!options.skipChecks) {
     for (const app of ["desktop", "server", "web"]) {
       await run(vp, ["run", "typecheck"], NodePath.join(repo, "apps", app));
